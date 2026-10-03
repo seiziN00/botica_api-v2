@@ -2,6 +2,7 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlmodel import Session as SQLModelSession
 
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./botica.db")
@@ -19,7 +20,14 @@ else:
     engine = create_engine(DATABASE_URL)
 
 # Fábrica de sesiones para las peticiones HTTP
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Usa la Session de SQLModel para soportar tanto .exec() (SQLModel)
+# como .query() (SQLAlchemy clásico) en los endpoints
+SessionLocal = sessionmaker(
+    class_=SQLModelSession,
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+)
 
 # Base para declarar los modelos de las tablas
 Base = declarative_base()

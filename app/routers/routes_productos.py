@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Query, Depends
-from sqlalchemy.orm import Session
+from sqlmodel import Session, select
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
-from app.models import ProductoModel
+from app.models import ProductoModel, LoteModel
 from app.schemas import (
     ProductoCrear,
     ProductoActualizar,
@@ -21,18 +21,15 @@ router = APIRouter(
 @router.get("", response_model=list[ProductoRespuesta])
 def listar_productos(
     search: str | None = Query(default=None, min_length=1),
-    db: Session = Depends(get_db)
+    session: Session = Depends(get_db)
 ):
+    query = select(ProductoModel)
     if search:
-        productos = db.query(ProductoModel)\
-            .filter(ProductoModel.producto.ilike(f"%{search}%"))\
-            .order_by(ProductoModel.producto)\
-            .all()
-    else:
-        productos = db.query(ProductoModel)\
-            .order_by(ProductoModel.producto)\
-            .all()
-            
+        query = query.where(ProductoModel.producto.ilike(f"%{search}%"))
+
+    query = query.order_by(ProductoModel.producto)
+    productos = session.exec(query).all()
+
     return productos
 
 
@@ -40,8 +37,8 @@ def listar_productos(
 # @@ OBTENER UN PRODUCTO @@
 # @@@@@@@@@@@@@@@@@@@@@@@@@
 @router.get("/{producto_id}", response_model=ProductoRespuesta)
-def obtener_producto(producto_id: int, db: Session = Depends(get_db)):
-    producto = db.query(ProductoModel).filter(ProductoModel.id == producto_id).first()
+def obtener_producto(producto_id: int, session: Session = Depends(get_db)):
+    producto = session.get(ProductoModel, producto_id)
 
     if producto is None:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
@@ -53,21 +50,24 @@ def obtener_producto(producto_id: int, db: Session = Depends(get_db)):
 # @@ CREAR @@
 # @@@@@@@@@@@
 @router.post("", response_model=ProductoRespuesta, status_code=201)
-def crear_producto(producto: ProductoCrear, db: Session = Depends(get_db)):
+def crear_producto(producto: ProductoCrear, session: Session = Depends(get_db)):
     try:
         nuevo_producto = ProductoModel(
             producto=producto.producto,
             precio_venta=producto.precio_venta,
-            stock=producto.stock
+            codigo_barras=getattr(producto, "codigo_barras", None),
+            categoria=getattr(producto, "categoria", None),
+            laboratorio=getattr(producto, "laboratorio", None),
+            presentacion=getattr(producto, "presentacion", None),
+            principio_activo=getattr(producto, "principio_activo", None)
         )
-        db.add(nuevo_producto)
-        db.commit()
-        db.refresh(nuevo_producto) # Carga el ID autoincremental generado
-        return nuevo_producto
+        session.add(nuevo_producto)
+        session.commit()
+        session.refresh(nuevo_producto)
 
     except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="El producto ya existe")
+        session.rollback()
+        raise HTTPException(status_code=409, detail="El producto ya existe o hay un conflicto de datos")
 
 
 # @@@@@@@@@@@@
@@ -77,19 +77,19 @@ def crear_producto(producto: ProductoCrear, db: Session = Depends(get_db)):
 def actualizar_producto(
     producto_id: int,
     producto: ProductoActualizar,
-    db: Session = Depends(get_db)
+    session: Session = Depends(get_db)
 ):
-    existente = db.query(ProductoModel).filter(ProductoModel.id == producto_id).first()
+    existente = session.get(ProductoModel, producto_id)
 
     if existente is None:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
-    existente.producto = producto.producto
-    existente.precio_venta = producto.precio_venta
-    existente.stock = producto.stock
+    datos_actualizados = producto.model_dump(exclude_unset=True)
+    for key, value in datos_actualizados.items():
+        setattr(existente, key, value)
 
-    db.commit()
-    db.refresh(existente)
+    session.commit()
+    session.refresh(existente)
     return existente
 
 
@@ -97,12 +97,12 @@ def actualizar_producto(
 # @@ ELIMINAR @@
 # @@@@@@@@@@@@@@
 @router.delete("/{producto_id}", status_code=204)
-def eliminar_producto(producto_id: int, db: Session = Depends(get_db)):
-    producto = db.query(ProductoModel).filter(ProductoModel.id == producto_id).first()
+def eliminar_producto(producto_id: int, session: Session = Depends(get_db)):
+    producto = session.get(ProductoModel, producto_id)
 
     if producto is None:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
-    db.delete(producto)
-    db.commit()
+    session.delete(producto)
+    session.commit()
     return None

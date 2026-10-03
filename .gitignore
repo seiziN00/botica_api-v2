@@ -9,4 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
-botica.db
+# Environment variables
+.env
+
+# Database files
+*.db
