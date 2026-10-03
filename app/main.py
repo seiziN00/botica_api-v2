@@ -1,4 +1,7 @@
 from fastapi import FastAPI
+from sqlmodel import SQLModel
+
+import app.models  # registra todas las tablas en SQLModel.metadata
 from app.database import engine
 from app.routers import (
     routes_productos,
@@ -15,6 +18,12 @@ app = FastAPI(
     # docs_url=None,
     # redoc_url=None,
 )
+
+@app.on_event("startup")
+def crear_tablas():
+    # Crea las tablas si no existen (no borra ni modifica datos existentes)
+    SQLModel.metadata.create_all(engine)
+
 
 app.include_router(routes_productos.router)
 app.include_router(routes_auth.router)
