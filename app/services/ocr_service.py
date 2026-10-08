@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
 
 # --- Esquema Pydantic para JSON Schema estricto ---
 

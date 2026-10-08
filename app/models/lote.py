@@ -1,8 +1,11 @@
+# app/models/lote.py
+
 from datetime import date, datetime
-from zoneinfo import ZoneInfo
 from decimal import Decimal
 
 from sqlmodel import Field, SQLModel
+
+from app.core.security import ahora
 
 
 class LoteModel(SQLModel, table=True):
@@ -44,9 +47,11 @@ class LoteModel(SQLModel, table=True):
     )
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(ZoneInfo("America/Lima")),
+        default_factory=ahora,
+        nullable=False,
     )
 
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(ZoneInfo("America/Lima")),
+        default_factory=ahora,
+        nullable=False,
     )

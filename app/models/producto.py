@@ -1,6 +1,8 @@
 from decimal import Decimal
+from enum import Enum
 
 from sqlmodel import Field, SQLModel
+from sqlalchemy import UniqueConstraint
 
 
 class ProductoModel(SQLModel, table=True):
@@ -8,12 +10,6 @@ class ProductoModel(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     producto: str = Field(nullable=False, index=True)
-    precio_venta: Decimal = Field(
-        default=Decimal("0.00"),
-        max_digits=10,
-        decimal_places=2,
-        ge=0,
-    )
 
     codigo_barras: str | None = Field(
         default=None,
@@ -30,16 +26,74 @@ class ProductoModel(SQLModel, table=True):
         default=None,
         index=True,
     )
+    
+    stock_minimo: int = Field(
+        default=5,
+        ge=0,
+        nullable=False,
+    )
 
-    presentacion: str | None = None      # tableta, frasco, sobre, etc
+    activo: bool = Field(
+        default=True,
+        nullable=False,
+        index=True,
+    )
+
+
+class TipoPresentacion(str, Enum):
+    UNIDAD = "unidad"
+    BLISTER = "blister"
+    CAJA = "caja"
+
+
+class ProductoPresentacion(SQLModel, table=True):
+    __tablename__ = "producto_presentaciones"
+    
+    id: int | None = Field(
+        default=None,
+        primary_key=True
+    )
+    
+    producto_id: int = Field(
+        foreign_key="productos.id",
+        nullable=False,
+        index=True,
+    )
+    
+    tipo: TipoPresentacion = Field(
+        default=TipoPresentacion.UNIDAD,
+        nullable=False,
+        index=True,
+    )
+    
+    unidades_base: int = Field(
+        default=1,
+        ge=1,
+        nullable=False,
+    )
+    
+    precio_venta: Decimal = Field(
+        max_digits=10,
+        decimal_places=2,
+        ge=0,
+        nullable=False,
+    )
+
+    predeterminada: bool = Field(
+        default=False,
+        nullable=False,
+    )
     
     activo: bool = Field(
         default=True,
+        nullable=False,
         index=True,
     )
 
 
 class ProductoAlias(SQLModel, table=True):
+    __tablename__ = "producto_aliases"
+
     id: int | None = Field(default=None, primary_key=True)
     producto_id: int = Field(
         foreign_key="productos.id",

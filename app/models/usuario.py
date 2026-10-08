@@ -1,17 +1,11 @@
+# app/models/usuario.py
+
 from datetime import datetime
-from zoneinfo import ZoneInfo
-from enum import Enum
 
 from sqlmodel import Field, SQLModel
 
-
-peru_tz = ZoneInfo("America/Lima")
-
-
-class RolEnum(str, Enum):
-    STAFF = "staff"
-    ADMIN = "admin"
-    SUPERADMIN = "superadmin"
+from app.core.security import ahora
+from app.models.permisos import RolEnum
 
 
 class UsuarioModel(SQLModel, table=True):
@@ -43,10 +37,6 @@ class UsuarioModel(SQLModel, table=True):
         index=True,
     )
 
-    email_verificado_at: datetime | None = Field(
-        default=None,
-    )
-
     rol: RolEnum = Field(
         default=RolEnum.STAFF,
         nullable=False,
@@ -59,15 +49,11 @@ class UsuarioModel(SQLModel, table=True):
     )
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(peru_tz),
+        default_factory=ahora,
         nullable=False,
     )
 
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(peru_tz),
+        default_factory=ahora,
         nullable=False,
     )
-
-
-# Alias de compatibilidad para código que importa "Usuario"
-Usuario = UsuarioModel

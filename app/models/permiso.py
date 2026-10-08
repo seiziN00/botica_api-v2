@@ -4,10 +4,13 @@ from datetime import datetime
 
 from sqlmodel import Field, SQLModel
 
-from app.models.usuario import RolEnum, UsuarioModel
+from app.core.security import ahora
+from app.models.permisos import PermisoEnum
 
 
 class PermisoTemporal(SQLModel, table=True):
+    __tablename__ = "permisos_temporales"
+
     id: int | None = Field(
         default=None,
         primary_key=True,
@@ -19,7 +22,7 @@ class PermisoTemporal(SQLModel, table=True):
         index=True,
     )
 
-    permiso: str = Field(
+    permiso: PermisoEnum = Field(
         nullable=False,
         index=True,
     )
@@ -29,9 +32,14 @@ class PermisoTemporal(SQLModel, table=True):
         nullable=False,
     )
 
-    inicio: datetime = Field(nullable=False)
+    inicio: datetime = Field(
+        default_factory=ahora,
+        nullable=False,
+    )
 
-    expiracion: datetime = Field(nullable=False)
+    expiracion: datetime = Field(
+        nullable=False,
+    )
 
     activo: bool = Field(
         default=True,

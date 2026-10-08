@@ -1,88 +1,88 @@
-# app/api/deps.py
+# app/routers/deps.py
 
 import jwt
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session, select
 
-from app.core.config import settings
+from app.core.security import ahora, decode_access_token
 from app.db.session import get_session
-from app.models.usuario import Usuario
+from app.models.permiso import PermisoTemporal
+from app.models.permisos import PERMISOS_POR_ROL, PermisoEnum
+from app.models.usuario import UsuarioModel
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/auth/login"
+CREDENCIALES_INVALIDAS = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Credenciales inválidas",
+    headers={"WWW-Authenticate": "Bearer"},
 )
 
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
-) -> Usuario:
-
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Credenciales inválidas",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
+) -> UsuarioModel:
     try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
-        )
+        payload = decode_access_token(token)
+        user_id = int(payload["sub"])
+        token_version = payload.get("tv", 0)
+    except (jwt.InvalidTokenError, KeyError, ValueError):
+        raise CREDENCIALES_INVALIDAS
 
-        user_id = payload.get("sub")
+    user = session.get(UsuarioModel, user_id)
 
-        if not user_id:
-            raise credentials_exception
+    if user is None:
+        raise CREDENCIALES_INVALIDAS
 
-        user_id = int(user_id)
-
-    except (jwt.InvalidTokenError, ValueError):
-        raise credentials_exception
-
-    user = session.get(Usuario, user_id)
-
-    if not user:
-        raise credentials_exception
+    if token_version != user.token_version:
+        # Token emitido antes de un cambio de contraseña / revocación
+        raise CREDENCIALES_INVALIDAS
 
     if not user.activo:
         raise HTTPException(
-            status_code=403,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Usuario desactivado",
-        )
-
-    if not user.email_verificado:
-        raise HTTPException(
-            status_code=403,
-            detail="Email no verificado",
         )
 
     return user
 
 
-ROL_LEVEL = {
-    RolEnum.STAFF: 1,
-    RolEnum.ADMIN: 2,
-    RolEnum.SUPERADMIN: 3,
-}
+def usuario_tiene_permiso(
+    session: Session,
+    usuario: UsuarioModel,
+    permiso: PermisoEnum,
+) -> bool:
+    """True si el rol lo incluye o si tiene un permiso temporal vigente."""
+    if permiso in PERMISOS_POR_ROL.get(usuario.rol, set()):
+        return True
 
-def require_min_role(required_role: RolEnum):
+    ahora_peru = ahora()
+    grant = session.exec(
+        select(PermisoTemporal).where(
+            PermisoTemporal.usuario_id == usuario.id,
+            PermisoTemporal.permiso == permiso.value,
+            PermisoTemporal.activo == True,  # noqa: E712
+            PermisoTemporal.inicio <= ahora_peru,
+            PermisoTemporal.expiracion > ahora_peru,
+        )
+    ).first()
+
+    return grant is not None
+
+
+def require_permission(permiso: PermisoEnum):
+    """Dependencia FastAPI: exige un permiso (por rol o temporal)."""
     def dependency(
-        current_user: Usuario = Depends(get_current_user),
-    ) -> Usuario:
-        current_level = ROLE_LEVEL[current_user.rol]
-        required_level = ROLE_LEVEL[current_role]
-
-        if current_level < required_level:
+        current_user: UsuarioModel = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ) -> UsuarioModel:
+        if not usuario_tiene_permiso(session, current_user, permiso):
             raise HTTPException(
-                status_code=403,
-                detail="No tienes permisos suficientes",
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permiso requerido: {permiso.value}",
             )
-
         return current_user
 
     return dependency

@@ -14,3 +14,7 @@ wheels/
 
 # Database files
 *.db
+
+# para añadir precios por unidad a presentaciones
+excel ventas - nuevo - Sheet1 (1).csv
+producto_venta.py

@@ -6,6 +6,8 @@ from sqlalchemy import Column, JSON
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
+from app.core.security import ahora
+
 # JSONB en PostgreSQL, JSON genérico en SQLite y otros motores
 JSONType = JSON().with_variant(JSONB(), "postgresql")
 
@@ -75,7 +77,10 @@ class Factura(SQLModel, table=True):
         foreign_key="usuarios.id",
     )
 
-    created_at: datetime = Field(...)
+    created_at: datetime = Field(
+        default_factory=ahora,
+        nullable=False,
+    )
     processed_at: datetime | None = None
     confirmed_at: datetime | None = None
 
@@ -105,9 +110,20 @@ class FacturaLinea(SQLModel, table=True):
 
     cantidad: int = Field(
         nullable=False,
+        ge=1,
     )
 
-    precio_unitario: Decimal
+    precio_unitario: Decimal = Field(
+        nullable=False,
+        max_digits=10,
+        decimal_places=2,
+    )
+
+    importe: Decimal = Field(
+        nullable=False,
+        max_digits=10,
+        decimal_places=2,
+    )
 
     lote_codigo: str | None = None
 
