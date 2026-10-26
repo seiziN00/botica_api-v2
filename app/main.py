@@ -6,6 +6,7 @@ from app.db.session import engine
 from app.routers import (
     routes_auditoria,
     routes_auth,
+    routes_catalogo,
     routes_facturas,
     routes_kardex,
     routes_lotes,
@@ -32,6 +33,7 @@ def crear_tablas():
 app.include_router(routes_auth.router)
 app.include_router(routes_usuarios.router)
 app.include_router(routes_productos.router)
+app.include_router(routes_catalogo.router)
 app.include_router(routes_lotes.router)
 app.include_router(routes_ventas.router)
 app.include_router(routes_reportes.router)

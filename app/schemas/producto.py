@@ -65,3 +65,10 @@ class ProductoPresentacionRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ---- Catálogo completo (caché local del POS) ----
+
+class ProductoCatalogo(ProductoRespuesta):
+    stock_disponible: int
+    presentaciones: list[ProductoPresentacionRead] = []

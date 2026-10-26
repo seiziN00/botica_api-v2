@@ -1,6 +1,10 @@
 # app/routers/routes_lotes.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import date, datetime, timedelta
+from dateutil.relativedelta import relativedelta
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from app.core.security import ahora
@@ -146,3 +150,66 @@ def eliminar_lote(
 
     session.commit()
     return None
+
+
+@router.get("/venciendo", response_model=list[LoteRespuesta])
+def lotes_venciendo(
+    dias: int | None = Query(default=None, ge=0),
+    meses: int | None = Query(default=None, ge=0),
+    desde: date | None = None,
+    hasta: date | None = None,
+    producto_id: int | None = None,
+    vencidos: bool | None = Query(default=None, description="True para ver ya vencidos, False para vigentes"),
+    solo_con_stock: bool = Query(default=True),
+    session: Session = Depends(get_session),
+    _: UsuarioModel = Depends(require_permission(PermisoEnum.INVENTARIO_VER)),
+):
+    """Lotes que vencen en el futuro inmediato.
+
+    Filtros (combinables):
+      - dias  : vencen en los próximos N días
+      - meses : vencen en los próximos N meses
+      - desde/hasta : rango absoluto de fechas de vencimiento
+      - producto_id : limitar a un producto
+      - vencidos: ver los ya vencidos
+      - solo_con_stock : solo lotes con stock > 0
+    """
+    hoy = ahora().date()
+    corte = hoy
+    if dias:
+        corte = corte + timedelta(days=dias)
+    if meses:
+        corte = corte + relativedelta(months=meses)
+
+    filtros = [
+        LoteModel.activo == True, # noqa: E712
+        LoteModel.vencimiento.is_not(None),
+    ]
+
+    if solo_con_stock:
+        filtros.append(LoteModel.stock > 0)
+    if producto_id is not None:
+        filtros.append(LoteModel.producto_id == producto_id)
+
+    # Rango de vencimiento: [hoy, corte] si se dio un parámetro relativo
+    if vencidos is not None:
+        if vencidos:
+            filtros.append(LoteModel.vencimiento < hoy)
+        else:
+            filtros.append(LoteModel.vencimiento >= hoy)
+    else:
+        if dias or meses:
+            filtros.append(LoteModel.vencimiento.is_not(None))
+            filtros.append(LoteModel.vencimiento >= hoy)
+            filtros.append(LoteModel.vencimiento <= corte)
+        else:
+            if desde is not None:
+                filtros.append(LoteModel.vencimiento >= desde)
+            if hasta is not None:
+                filtros.append(LoteModel.vencimiento <= hasta)
+
+    return session.exec(
+        select(LoteModel)
+        .where(*filtros)
+        .order_by(LoteModel.vencimiento)
+    ).all()

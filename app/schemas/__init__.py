@@ -12,6 +12,7 @@ from .producto import (
     ProductoActualizar,
     PrecioActualizar,
     ProductoRespuesta,
+    ProductoCatalogo,
     ProductoPresentacionCreate,
     ProductoPresentacionUpdate,
     ProductoPresentacionRead,
