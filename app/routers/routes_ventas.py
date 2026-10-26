@@ -13,7 +13,7 @@ from app.models.lote import LoteModel
 from app.models.permisos import PermisoEnum
 from app.models.producto import ProductoModel, ProductoPresentacion
 from app.models.usuario import UsuarioModel
-from app.models.venta import Venta, VentaDetalle, VentaDetalleLote
+from app.models.venta import Venta, VentaDetalle, VentaDetalleLote, VentaPago
 from app.routers.deps import require_permission
 from app.schemas import (
     VentaConDetalle,
@@ -41,10 +41,18 @@ def crear_venta(
         require_permission(PermisoEnum.VENTA_CREAR)
     ),
 ):
-    total = Decimal("0")
+    # 1. Validar que los pagos enviados sumen un monto válido
+    total_pagado = sum((p.monto for p in datos.pagos), Decimal("0.00"))
+    if total_pagado <= Decimal("0.00"):
+        raise HTTPException(
+            status_code=400,
+            detail="El monto total de los pagos debe ser mayor a cero",
+        )
 
-    # Validar todo antes de tocar stock
+    # 2. Validar productos, presentaciones, stock y calcular el total de los ítems
+    total = Decimal("0.00")
     preparados = []
+
     for item in datos.items:
         producto = session.get(ProductoModel, item.producto_id)
         if not producto or not producto.activo:
@@ -96,18 +104,52 @@ def crear_venta(
                 ),
             )
 
-        preparados.append((item, precio_unitario, unidades))
+        subtotal = precio_unitario * item.cantidad
+        total += subtotal
+        preparados.append((item, producto, presentacion, precio_unitario, unidades, subtotal))
 
-    # Crear la venta primero para tener su id como referencia de los movimientos
-    venta = Venta(vendedor_id=current_user.id, total=Decimal("0"))
+    # Aplicar descuento global
+    descuento_global = datos.descuento if datos.descuento else Decimal("0.00")
+    total = total - descuento_global
+
+    if total < Decimal("0.00"):
+        raise HTTPException(
+            status_code=400,
+            detail="El descuento no puede ser mayor al total de la venta",
+        )
+
+    # 3. Validar que los pagos coincidan exactamente con el total final
+    if total_pagado != total:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El total pagado ({total_pagado}) no coincide con el total de la venta ({total})",
+        )
+
+    # 4. Crear la cabecera de la venta
+    venta = Venta(
+        vendedor_id=current_user.id,
+        total=total,
+        descuento=descuento_global,
+    )
     session.add(venta)
     session.flush()
 
+    # 5. Registrar los métodos de pago múltiples
+    for pago_item in datos.pagos:
+        session.add(
+            VentaPago(
+                venta_id=venta.id,
+                metodo=pago_item.metodo,
+                monto=pago_item.monto,
+            )
+        )
+
+    # 6. Descontar stock (FEFO) y registrar detalles y lotes
     detalles: list[VentaDetalle] = []
     asignaciones_por_detalle: list[list[tuple[LoteModel, int]]] = []
 
     try:
-        for item, precio_unitario, unidades in preparados:
+        for item, producto, presentacion, precio_unitario, unidades, subtotal in preparados:
             asignaciones = descontar_fefo(
                 session,
                 producto_id=item.producto_id,
@@ -116,8 +158,7 @@ def crear_venta(
                 referencia_tipo="venta",
                 referencia_id=venta.id,
             )
-            subtotal = precio_unitario * item.cantidad
-            total += subtotal
+            
             detalles.append(
                 VentaDetalle(
                     venta_id=venta.id,
@@ -127,16 +168,17 @@ def crear_venta(
                     precio_unitario=precio_unitario,
                     subtotal=subtotal,
                     unidades_base=unidades,
+                    descuento_snapshot=Decimal("0.00"),
+                    producto_snapshot=producto.producto,
+                    presentacion_snapshot=f"{presentacion.tipo.value} x {presentacion.unidades_base}" if presentacion else None,
+                    laboratorio_snapshot=producto.laboratorio,
+                    vendedor_snapshot=current_user.nombre,
                 )
             )
             asignaciones_por_detalle.append(asignaciones)
     except StockInsuficienteError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-    venta.total = total
-    session.add(venta)
-
-    # Flush de detalles para poder crear la trazabilidad por lote
     for detalle in detalles:
         session.add(detalle)
     session.flush()
@@ -161,6 +203,7 @@ def crear_venta(
     )
 
     session.commit()
+    session.refresh(venta)
 
     return _venta_con_detalle(session, venta)
 
@@ -176,7 +219,6 @@ def listar_ventas(
     ).all()
 
 
-# Declarado antes de /{venta_id} para evitar ambigüedad de rutas
 @router.get("/del-dia", response_model=VentasDelDia)
 def ventas_del_dia(
     session: Session = Depends(get_session),
@@ -243,6 +285,10 @@ def _venta_con_detalle(session: Session, venta: Venta) -> VentaConDetalle:
                 precio_unitario=detalle.precio_unitario,
                 subtotal=detalle.subtotal,
                 unidades_base=detalle.unidades_base,
+                producto_snapshot=detalle.producto_snapshot,
+                presentacion_snapshot=detalle.presentacion_snapshot,
+                laboratorio_snapshot=detalle.laboratorio_snapshot,
+                vendedor_snapshot=detalle.vendedor_snapshot,
                 lotes=lotes_resp,
             )
         )
