@@ -2,16 +2,31 @@
 
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
+from typing import List, Optional
 
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, SQLModel, Relationship
 
 from app.core.security import ahora
+
+
+class MetodoPago(str, Enum):
+    EFECTIVO = "efectivo"
+    TARJETA = "tarjeta"
+    TRANSFERENCIA = "transferencia"
+    DEBITO = "debito"
+    BIM = "bim"
+    TUNKI = "tunki"
+    LIGO = "ligo"
+    AGORA_PAY = "agora pay"
+    YAPE = "yape"
+    PLIN = "plin"
 
 
 class Venta(SQLModel, table=True):
     __tablename__ = "ventas"
 
-    id: int | None = Field(
+    id: Optional[int] = Field(
         default=None,
         primary_key=True,
     )
@@ -35,11 +50,29 @@ class Venta(SQLModel, table=True):
         nullable=False,
     )
 
+    descuento: Decimal = Field(
+        default=Decimal("0.00"),
+        max_digits=12,
+        decimal_places=2,
+        nullable=False,
+        ge=Decimal("0.00"),
+    )
+
+    pagos: List["VentaPago"] = Relationship(
+        back_populates="venta",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
+
+    detalles: List["VentaDetalle"] = Relationship(
+        back_populates="venta",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
+
 
 class VentaDetalle(SQLModel, table=True):
     __tablename__ = "venta_detalles"
 
-    id: int | None = Field(
+    id: Optional[int] = Field(
         default=None,
         primary_key=True,
     )
@@ -70,17 +103,50 @@ class VentaDetalle(SQLModel, table=True):
         max_digits=10,
         decimal_places=2,
         nullable=False,
+        ge=Decimal("0.00"),
     )
 
     subtotal: Decimal = Field(
         max_digits=12,
         decimal_places=2,
         nullable=False,
+        ge=Decimal("0.00"),
     )
 
-    # Snapshot histórico: unidades base descontadas (cantidad * multiplicador).
-    # Protege el historial si luego se edita la presentación.
-    unidades_base: int = Field(nullable=False, ge=1)
+    # Snapshots
+    producto_snapshot: str = Field(
+        max_length=200,
+        nullable=False,
+    )
+
+    presentacion_snapshot: Optional[str] = Field(
+        default=None,
+        max_length=50,
+    )
+
+    laboratorio_snapshot: Optional[str] = Field(
+        default=None,
+        max_length=100,
+    )
+
+    vendedor_snapshot: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        nullable=True,
+    )
+
+    unidades_base: int = Field(
+        nullable=False,
+        ge=1,
+    )
+
+    # Relaciones ORM
+    venta: Optional[Venta] = Relationship(back_populates="detalles")
+
+    lotes: List["VentaDetalleLote"] = Relationship(
+        back_populates="venta_detalle",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
 
 
 class VentaDetalleLote(SQLModel, table=True):
@@ -88,7 +154,10 @@ class VentaDetalleLote(SQLModel, table=True):
 
     __tablename__ = "venta_detalle_lotes"
 
-    id: int | None = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(
+        default=None,
+        primary_key=True,
+    )
 
     venta_detalle_id: int = Field(
         foreign_key="venta_detalles.id",
@@ -103,4 +172,35 @@ class VentaDetalleLote(SQLModel, table=True):
     )
 
     # Unidades base tomadas de ese lote
-    cantidad: int = Field(nullable=False, ge=1)
+    cantidad: int = Field(
+        nullable=False,
+        ge=1,
+    )
+
+    # Relación ORM
+    venta_detalle: Optional[VentaDetalle] = Relationship(back_populates="lotes")
+
+
+class VentaPago(SQLModel, table=True):
+    """Un método de pago de una venta. Una venta puede tener varios."""
+    __tablename__ = "venta_pagos"
+
+    id: int | None = Field(default=None, primary_key=True)
+
+    venta_id: int = Field(
+        foreign_key="ventas.id",
+        nullable=False,
+        index=True,
+    )
+
+    metodo: MetodoPago = Field(nullable=False)
+
+    monto: Decimal = Field(
+        max_digits=12,
+        decimal_places=2,
+        nullable=False,
+        ge=Decimal("0.00"),
+    )
+
+    # Relación ORM
+    venta: Optional[Venta] = Relationship(back_populates="pagos")
